@@ -48,23 +48,70 @@ C = ${fparse C_SI*JtoeV/length_scale^3}
     order = FIRST
     family = LAGRANGE
   [../]
+  [./effective_gr0]
+    order = FIRST
+    family = LAGRANGE
+  [../]
+  [./effective_gr1]
+    order = FIRST
+    family = LAGRANGE
+  [../]
+  [./effective_gr2]
+    order = FIRST
+    family = LAGRANGE
+  [../]
+  [./effective_regr0]
+    order = FIRST
+    family = LAGRANGE
+  [../]
 []
 [AuxKernels]
+  [effective_gr0_aux]
+    type = ParsedAux
+    variable = effective_gr0
+    coupled_variables = 'gr0 regr0'
+    constant_names = 'center sharpness'
+    constant_expressions = '0.2 10'  # center是转换中心，sharpness控制锐度
+    expression = 'gr0*(1/(1+exp(sharpness*(regr0-center))))'  # sigmoid抑制函数
+  []
+  [effective_gr1_aux]
+    type = ParsedAux
+    variable = effective_gr1
+    coupled_variables = 'gr1 regr0'
+    constant_names = 'center sharpness'
+    constant_expressions = '0.2 10'
+    expression = 'gr1*(1/(1+exp(sharpness*(regr0-center))))'
+  []
+  [effective_gr2_aux]
+    type = ParsedAux
+    variable = effective_gr2
+    coupled_variables = 'gr2 regr0'
+    constant_names = 'center sharpness'
+    constant_expressions = '0.2 10'
+    expression = 'gr2*(1/(1+exp(sharpness*(regr0-center))))'
+  []
+  [effective_regr0_aux]
+    type = ParsedAux
+    variable = effective_regr0
+    coupled_variables = 'regr0'
+    constant_names = 'center sharpness'
+    constant_expressions = '0.2 10'
+    expression = '1/(1+exp(-sharpness*(regr0-center)))'  # sigmoid激活函数
+  []
   [bnds_aux]
-    # AuxKernel that calculates the GB term
     type = BndsCalcAux
-    variable = bnds #计算晶界(Grain Boundary)位置，通过计算相邻晶粒之间的界面能量梯度。
-    v = 'c gr0 gr1 gr2 regr0'
+    variable = bnds
+    v = 'c effective_gr0 effective_gr1 effective_gr2 regr0'  # 使用有效晶粒
     execute_on = 'initial timestep_end'
   []
 []
 [Mesh]
   type = GeneratedMesh
   dim = 2
-  nx = 150
-  ny = 150
-  xmax = 26.5e3
-  ymax = 26.5e3
+  nx = 200
+  ny = 200
+  xmax = 12.5e3
+  ymax = 12.5e3
   elem_type = QUAD
 []
 
@@ -183,7 +230,7 @@ C = ${fparse C_SI*JtoeV/length_scale^3}
     type = ParsedMaterial
     property_name = P
     coupled_variables = bnds
-    expression = max((0.8-bnds)*1e-5,0)
+    expression = max((0.7-bnds)*1e-5,0)
     outputs = exodus
   [../]
   [./nucleation]
@@ -228,7 +275,7 @@ C = ${fparse C_SI*JtoeV/length_scale^3}
     type = DiscreteNucleationInserter
     hold_time = 0.1
     probability = P
-    radius = 0.5e3
+    radius = 0.2e3
   [../]
   [./map]
     # The map UO runs at the beginning of a timestep and generates a per-element/qp
@@ -245,7 +292,7 @@ C = ${fparse C_SI*JtoeV/length_scale^3}
       type = DiscreteNucleationInserter
       hold_time = 0.1
       probability = P
-      radius = 0.8e3
+      radius = 0.2e3
     [../]
     [./map_regr0]
       # The map UO runs at the beginning of a timestep and generates a per-element/qp
@@ -259,7 +306,7 @@ C = ${fparse C_SI*JtoeV/length_scale^3}
   [voronoi]
     type = PolycrystalVoronoi
     rand_seed = 2
-    int_width = 0.8e3
+    int_width = 0.3e3
   []
   [grain_tracker]
     type = GrainTracker
@@ -292,14 +339,21 @@ C = ${fparse C_SI*JtoeV/length_scale^3}
 
   nl_rel_tol = 1e-10 # 非线性求解的相对容差
   nl_abs_tol = 1e-7 # 非线性求解的绝对容差
-  l_tol = 1e-7  # 线性求解的容差
+  l_tol = 1e-10  # 线性求解的容差
   l_abs_tol = 1e-8 # 线性求解的绝对容差
   start_time = 0.0
   num_steps = 100
 
   dt = 0.1
+  [./Adaptivity]
+    max_h_level = 3
+    initial_adaptivity = 1
+    refine_fraction = 0.9
+    coarsen_fraction = 0.1
+  [../]
 []
 
 [Outputs]
   exodus = true
+  file_base = 'results/1'
 []

@@ -48,23 +48,70 @@ C = ${fparse C_SI*JtoeV/length_scale^3}
     order = FIRST
     family = LAGRANGE
   [../]
+  [./effective_gr0]
+    order = FIRST
+    family = LAGRANGE
+  [../]
+  [./effective_gr1]
+    order = FIRST
+    family = LAGRANGE
+  [../]
+  [./effective_gr2]
+    order = FIRST
+    family = LAGRANGE
+  [../]
+  [./effective_regr0]
+    order = FIRST
+    family = LAGRANGE
+  [../]
 []
 [AuxKernels]
+  [effective_gr0_aux]
+    type = ParsedAux
+    variable = effective_gr0
+    coupled_variables = 'gr0 effective_regr0'
+    constant_names = 'center sharpness'
+    constant_expressions = '0.2 20'  # center是转换中心，sharpness控制锐度
+    expression = 'gr0*(1/(1+exp(sharpness*(effective_regr0-center))))'  # sigmoid抑制函数
+  []
+  [effective_gr1_aux]
+    type = ParsedAux
+    variable = effective_gr1
+    coupled_variables = 'gr1 effective_regr0'
+    constant_names = 'center sharpness'
+    constant_expressions = '0.2 20'
+    expression = 'gr1*(1/(1+exp(sharpness*(effective_regr0-center))))'
+  []
+  [effective_gr2_aux]
+    type = ParsedAux
+    variable = effective_gr2
+    coupled_variables = 'gr2 effective_regr0'
+    constant_names = 'center sharpness'
+    constant_expressions = '0.2 20'
+    expression = 'gr2*(1/(1+exp(sharpness*(effective_regr0-center))))'
+  []
+  [effective_regr0_aux]
+    type = ParsedAux
+    variable = effective_regr0
+    coupled_variables = 'regr0'
+    constant_names = 'threshold_high threshold_low'
+    constant_expressions = '4e-9 1e-11'  # 高阈值和低阈值
+    expression = 'if(abs(regr0)>=threshold_high, 1,(abs(regr0)-threshold_low)/(threshold_high-threshold_low))' # 线性插值
+  []
   [bnds_aux]
-    # AuxKernel that calculates the GB term
     type = BndsCalcAux
-    variable = bnds #计算晶界(Grain Boundary)位置，通过计算相邻晶粒之间的界面能量梯度。
-    v = 'c gr0 gr1 gr2 regr0'
+    variable = bnds
+    v = 'c effective_gr0 effective_gr1 effective_gr2 effective_regr0'  # 使用有效晶粒
     execute_on = 'initial timestep_end'
   []
 []
 [Mesh]
   type = GeneratedMesh
   dim = 2
-  nx = 150
-  ny = 150
-  xmax = 26.5e3
-  ymax = 26.5e3
+  nx = 200
+  ny = 200
+  xmax = 7.5e3
+  ymax = 7.5e3
   elem_type = QUAD
 []
 
@@ -93,25 +140,11 @@ C = ${fparse C_SI*JtoeV/length_scale^3}
 
 
 [ICs]
-  [./c_IC]
-    type = RandomIC
-    variable = c
-    min = 0.00
-    max = 0.00000000000000000001    # 适中的初始值
-    seed = 12345
-  [../]
   [PolycrystalICs]
     [PolycrystalColoringIC]
       polycrystal_ic_uo = voronoi
     []
   []
-  [./regr0_IC]
-    type = RandomIC
-    variable = regr0
-    min = 0.0
-    max = 0.000000000000000000001    # 适中的初始值
-    seed = 54321
-  [../]
 []
 [Kernels]
   # 添加以下NullKernel配置阻止晶粒变量演化
@@ -177,15 +210,16 @@ C = ${fparse C_SI*JtoeV/length_scale^3}
         material_property_names = 'f_bulk(c,gr0,gr1,gr2,regr0) f_stored(gr0,gr1,gr2,regr0)'
         # outputs = exodus
       [../]
-  [./probability]
-    # This is a made up toy nucleation rate it should be replaced by
-    # classical nucleation theory in a real simulation.
-    type = ParsedMaterial
-    property_name = P
-    coupled_variables = bnds
-    expression = max((0.8-bnds)*1e-5,0)
-    outputs = exodus
-  [../]
+    [./probability]
+      type = ParsedMaterial
+      property_name = P
+      coupled_variables = 'bnds effective_regr0'  # 如果还要考虑c的值
+      constant_names = 'min_regr0 base_prob'
+      constant_expressions = '0.9 1e-3'
+      expression = 'max(max((0.7-bnds)*base_prob,0) + 
+                    if(0.0001<effective_regr0<min_regr0, 0.5, 0)*base_prob-if(0.0001>effective_regr0, 0.5, 0)*base_prob,0)'
+      outputs = exodus
+    [../]
   [./nucleation]
     # The nucleation material is configured to insert nuclei into the free energy
     # tht force the concentration to go to 0.95, and holds this enforcement for 500
@@ -194,7 +228,7 @@ C = ${fparse C_SI*JtoeV/length_scale^3}
     property_name = Fn
     op_names  = c
     op_values = 0.95      # 成核瞬间直接达到0.95
-    penalty = 1e7         # 足够大的penalty确保瞬间到达
+    penalty = 1e6         # 足够大的penalty确保瞬间到达
     penalty_mode = MIN
     map = map
     outputs = exodus
@@ -207,7 +241,7 @@ C = ${fparse C_SI*JtoeV/length_scale^3}
       property_name = Fn_regr0
       op_names  = regr0
       op_values = 0.93      # 成核瞬间直接达到0.95
-      penalty = 1.5e6         # 足够大的penalty确保瞬间到达
+      penalty = 1#1.5e6         # 足够大的penalty确保瞬间到达
       penalty_mode = MIN
       map = map_regr0
       outputs = exodus
@@ -226,9 +260,9 @@ C = ${fparse C_SI*JtoeV/length_scale^3}
     # The inserter runs at the end of each time step to add nucleation events
     # that happend during the timestep (if it converged) to the list of nuclei
     type = DiscreteNucleationInserter
-    hold_time = 0.1
+    hold_time = 0.001
     probability = P
-    radius = 0.5e3
+    radius = 0.2e3
   [../]
   [./map]
     # The map UO runs at the beginning of a timestep and generates a per-element/qp
@@ -243,9 +277,9 @@ C = ${fparse C_SI*JtoeV/length_scale^3}
       # The inserter runs at the end of each time step to add nucleation events
       # that happend during the timestep (if it converged) to the list of nuclei
       type = DiscreteNucleationInserter
-      hold_time = 0.1
+      hold_time = 0.001
       probability = P
-      radius = 0.8e3
+      radius = 0.2e3
     [../]
     [./map_regr0]
       # The map UO runs at the beginning of a timestep and generates a per-element/qp
@@ -259,7 +293,7 @@ C = ${fparse C_SI*JtoeV/length_scale^3}
   [voronoi]
     type = PolycrystalVoronoi
     rand_seed = 2
-    int_width = 0.8e3
+    int_width = 0.2e3
   []
   [grain_tracker]
     type = GrainTracker
@@ -290,16 +324,23 @@ C = ${fparse C_SI*JtoeV/length_scale^3}
 
   nl_max_its = 20
 
-  nl_rel_tol = 1e-10 # 非线性求解的相对容差
+  nl_rel_tol = 1e-12 # 非线性求解的相对容差
   nl_abs_tol = 1e-7 # 非线性求解的绝对容差
-  l_tol = 1e-7  # 线性求解的容差
+  l_tol = 1e-12  # 线性求解的容差
   l_abs_tol = 1e-8 # 线性求解的绝对容差
   start_time = 0.0
   num_steps = 100
 
-  dt = 0.1
+  dt = 0.001
+  # [./Adaptivity]
+  #   max_h_level = 2
+  #   initial_adaptivity = 1
+  #   refine_fraction = 0.9
+  #   coarsen_fraction = 0.1
+  # [../]
 []
 
 [Outputs]
   exodus = true
+  file_base = 'results/1'
 []
