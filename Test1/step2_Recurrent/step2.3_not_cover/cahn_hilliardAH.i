@@ -95,8 +95,8 @@ C = ${fparse C_SI*JtoeV/length_scale^3}
     variable = effective_regr0
     coupled_variables = 'regr0'
     constant_names = 'threshold_high threshold_low'
-    constant_expressions = '4e-9 1e-11'  # 高阈值和低阈值
-    expression = 'if(abs(regr0)>=threshold_high, 1,(abs(regr0)-threshold_low)/(threshold_high-threshold_low))' # 线性插值
+    constant_expressions = '2e-8 1e-11'  # 高阈值和低阈值
+    expression = 'if(abs(regr0)>=threshold_high, 0.83,max(0.5*(1+tanh(2*(abs(regr0)-0.5*(threshold_high+threshold_low))/(threshold_high-threshold_low))),0))' # 线性插值
   []
   [bnds_aux]
     type = BndsCalcAux
@@ -241,7 +241,7 @@ C = ${fparse C_SI*JtoeV/length_scale^3}
       property_name = Fn_regr0
       op_names  = regr0
       op_values = 0.93      # 成核瞬间直接达到0.95
-      penalty = 1#1.5e6         # 足够大的penalty确保瞬间到达
+      penalty = 10#1.5e6         # 足够大的penalty确保瞬间到达
       penalty_mode = MIN
       map = map_regr0
       outputs = exodus
